@@ -11,8 +11,9 @@ permissions:
 jobs:
   oidc:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Request OIDC JWT
+      - name: Request and Decode OIDC JWT
         shell: bash
         run: |
           RESPONSE=$(curl -sS -G \
@@ -24,24 +25,47 @@ jobs:
 
           if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
             echo "Failed to obtain OIDC token"
+            echo "$RESPONSE" | jq .
             exit 1
           fi
 
-          # Decode payload without printing the full JWT.
           export TOKEN
+
           python - <<'PY'
-          import os, json, base64
+          import os
+          import json
+          import base64
 
           token = os.environ["TOKEN"]
-          header, payload, signature = token.split(".")
+          parts = token.split(".")
+
+          if len(parts) != 3:
+              raise ValueError("Invalid JWT format")
+
+          header_part, payload_part, signature_part = parts
 
           def decode(part):
               part += "=" * (-len(part) % 4)
-              return json.loads(base64.urlsafe_b64decode(part))
+              decoded = base64.urlsafe_b64decode(part)
+              return json.loads(decoded)
 
-          print("Header:")
-          print(json.dumps(decode(header), indent=2))
+          print("=" * 60)
+          print("1. RAW JWT")
+          print("=" * 60)
+          print(token)
 
-          print("\nPayload:")
-          print(json.dumps(decode(payload), indent=2))
+          print("\n" + "=" * 60)
+          print("2. DECODED HEADER")
+          print("=" * 60)
+          print(json.dumps(decode(header_part), indent=2))
+
+          print("\n" + "=" * 60)
+          print("3. DECODED PAYLOAD")
+          print("=" * 60)
+          print(json.dumps(decode(payload_part), indent=2))
+
+          print("\n" + "=" * 60)
+          print("4. SIGNATURE (BASE64URL)")
+          print("=" * 60)
+          print(signature_part)
           PY
