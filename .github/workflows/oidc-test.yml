@@ -1,0 +1,47 @@
+
+name: Get OIDC JWT
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  oidc:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Request OIDC JWT
+        shell: bash
+        run: |
+          RESPONSE=$(curl -sS -G \
+            -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            --data-urlencode "audience=https://cloak.example.com" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL")
+
+          TOKEN=$(echo "$RESPONSE" | jq -r '.value')
+
+          if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+            echo "Failed to obtain OIDC token"
+            exit 1
+          fi
+
+          # Decode payload without printing the full JWT.
+          export TOKEN
+          python - <<'PY'
+          import os, json, base64
+
+          token = os.environ["TOKEN"]
+          header, payload, signature = token.split(".")
+
+          def decode(part):
+              part += "=" * (-len(part) % 4)
+              return json.loads(base64.urlsafe_b64decode(part))
+
+          print("Header:")
+          print(json.dumps(decode(header), indent=2))
+
+          print("\nPayload:")
+          print(json.dumps(decode(payload), indent=2))
+          PY
